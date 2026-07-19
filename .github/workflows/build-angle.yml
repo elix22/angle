@@ -39,16 +39,32 @@ jobs:
           echo "sha=$SHA" >> "$GITHUB_OUTPUT"
           echo "short=${SHA:0:9}" >> "$GITHUB_OUTPUT"
 
+      # Debug-loop economy: a pushed script tweak must not rebuild artifacts that are
+      # already published and immutable — probe the release first and no-op the job.
+      - name: Skip if this artifact is already published (immutable)
+        id: published
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="prebuilt-${{ steps.pin.outputs.short }}"
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets -q '.assets[].name' 2>/dev/null | grep -qx "angle-macos-universal-static-Release.tar.gz"; then
+            echo "angle-macos-universal-static-Release.tar.gz already published for $TAG — skipping the build"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Checkout pinned ANGLE source
+        if: steps.published.outputs.skip != 'true'
         uses: actions/checkout@v4
         with:
           ref: ${{ steps.pin.outputs.sha }}
           path: angle-src
 
       - name: Build
+        if: steps.published.outputs.skip != 'true'
         run: bash tools-main/scripts/prebuilt/build-macos.sh "$PWD/angle-src" "$PWD/out"
 
       - name: Upload build artifact (90-day convenience copy)
+        if: steps.published.outputs.skip != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: angle-macos-universal-static-Release
@@ -56,6 +72,7 @@ jobs:
           retention-days: 90
 
       - name: Publish to release (permanent)
+        if: steps.published.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -92,16 +109,32 @@ jobs:
           echo "sha=$SHA" >> "$GITHUB_OUTPUT"
           echo "short=${SHA:0:9}" >> "$GITHUB_OUTPUT"
 
+      # Debug-loop economy: a pushed script tweak must not rebuild artifacts that are
+      # already published and immutable — probe the release first and no-op the job.
+      - name: Skip if this artifact is already published (immutable)
+        id: published
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="prebuilt-${{ steps.pin.outputs.short }}"
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets -q '.assets[].name' 2>/dev/null | grep -qx "angle-ios-static-Release.tar.gz"; then
+            echo "angle-ios-static-Release.tar.gz already published for $TAG — skipping the build"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Checkout pinned ANGLE source
+        if: steps.published.outputs.skip != 'true'
         uses: actions/checkout@v4
         with:
           ref: ${{ steps.pin.outputs.sha }}
           path: angle-src
 
       - name: Build
+        if: steps.published.outputs.skip != 'true'
         run: bash tools-main/scripts/prebuilt/build-ios.sh "$PWD/angle-src" "$PWD/out"
 
       - name: Upload build artifact (90-day convenience copy)
+        if: steps.published.outputs.skip != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: angle-ios-static-Release
@@ -109,6 +142,7 @@ jobs:
           retention-days: 90
 
       - name: Publish to release (permanent)
+        if: steps.published.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
