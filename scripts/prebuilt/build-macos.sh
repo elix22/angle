@@ -32,7 +32,18 @@ cmake -S "$HERE/cmake" -B "$BUILD" \
   -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" \
   -DANGLE_SRC="$SRC" \
   -DANGLE_GEN="$HERE/cmake/gen"
-cmake --build "$BUILD" --parallel
+
+# Memory, not cores, bounds this build: each clang job compiles BOTH arches at once
+# (fat objects), and the biggest ANGLE/glslang TUs need ~3 GB that way. Unbounded
+# --parallel OOM-killed the 7 GB hosted runner at 99% ("runner lost communication"),
+# so cap jobs at mem/3GB; big local machines still get full-core builds.
+NCPU=$(sysctl -n hw.ncpu)
+MEMGB=$(( $(sysctl -n hw.memsize) / 1073741824 ))
+JOBS="${ANGLE_BUILD_JOBS:-$(( MEMGB / 3 < NCPU ? MEMGB / 3 : NCPU ))}"
+[ "$JOBS" -ge 1 ] || JOBS=1
+echo "build-macos: ${NCPU} cpus, ${MEMGB} GB ram -> ${JOBS} parallel jobs"
+df -h "$BUILD" | tail -1
+cmake --build "$BUILD" --parallel "$JOBS"
 
 LIB="$BUILD/libangle.a"
 [ -f "$LIB" ] || { echo "FAIL: $LIB missing after build"; exit 1; }
