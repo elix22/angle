@@ -1,0 +1,68 @@
+# Build ANGLE prebuilt libraries for the threejs-native-runtime SDK (phase 9).
+#
+# Builds the PINNED commit (scripts/prebuilt/PINNED_COMMIT), not main's head: the
+# runtime's no-GN CMake build and its committed generated headers are validated against
+# that exact commit. Uses the runtime's plain-CMake Metal build — no GN, no depot_tools,
+# no Chromium checkout. Release configuration only.
+#
+# Artifacts publish to a permanent GitHub RELEASE (tag prebuilt-<shortsha>); Actions
+# artifacts (90-day cap) are a convenience copy.
+name: Build ANGLE Libraries
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/prebuilt/**'
+      - '.github/workflows/build-angle.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  build-macos:
+    name: Build macOS (universal static, Metal)
+    runs-on: macos-latest
+    steps:
+      - name: Checkout scripts (main, sparse — the full tree comes at the pin below)
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            scripts/prebuilt
+          path: tools-main
+
+      - name: Read pinned ANGLE commit
+        id: pin
+        run: |
+          SHA=$(tr -d '[:space:]' < tools-main/scripts/prebuilt/PINNED_COMMIT)
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "short=${SHA:0:9}" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout pinned ANGLE source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.pin.outputs.sha }}
+          path: angle-src
+
+      - name: Build
+        run: bash tools-main/scripts/prebuilt/build-macos.sh "$PWD/angle-src" "$PWD/out"
+
+      - name: Upload build artifact (90-day convenience copy)
+        uses: actions/upload-artifact@v4
+        with:
+          name: angle-macos-universal-static-Release
+          path: out/angle-macos-universal-static-Release.tar.gz
+          retention-days: 90
+
+      - name: Publish to release (permanent)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="prebuilt-${{ steps.pin.outputs.short }}"
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" \
+              --title "ANGLE prebuilt ($TAG)" \
+              --notes "Prebuilt ANGLE (Metal, no-GN CMake) at pinned commit ${{ steps.pin.outputs.sha }}. Release config only. Produced by build-angle.yml."
+          gh release upload "$TAG" out/angle-macos-universal-static-Release.tar.gz \
+            --repo "$GITHUB_REPOSITORY" --clobber
